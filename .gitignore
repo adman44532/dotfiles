@@ -1,0 +1,14 @@
+.vscode
+.idea
+logs/
+app_storage/
+
+git-crypt-key
+*.swp
+*.secret
+*.age
+.cache/
+.result*
+*.bak
+*.key
+*.pem
