@@ -1,0 +1,651 @@
+#!/usr/bin/env bash
+# Enhanced NixOS rebuild script for multiple machines with nix-fast-build integration
+# Configuration variables
+LOG_DIR="./logs"
+MAX_LOGS=3 # Number of logs to keep (not including the latest symlink)
+
+# Terminal colors and styling
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# Unicode symbols if supported
+if [[ $LANG == *"UTF-8"* ]]; then
+        TICK="✓"
+        CROSS="✗"
+        ARROW="→"
+        INFO="ℹ"
+        WARNING="⚠"
+        ERROR="✖"
+else
+        TICK="+"
+        CROSS="x"
+        ARROW="->"
+        INFO="i"
+        WARNING="!"
+        ERROR="!!"
+fi
+
+# Enable proper pipeline error handling
+set -o pipefail
+
+# Auto-detect current hostname
+current_hostname=$(hostname)
+
+# Function to determine flake target from hostname
+get_flake_target() {
+        local target
+        local hostname="$1"
+
+        # Check if the hostname exists in the flake.nix
+        if grep -q "\"$hostname\"" flake.nix; then
+                target=".#$hostname"
+        else
+                echo -e "${YELLOW}${WARNING} Hostname '$hostname' not found in flake.nix${RESET}"
+                echo -e "${BLUE}${INFO} Available configurations:${RESET}"
+                grep -A20 "nixosConfigurations = {" flake.nix | grep -o '#.*= mkSystem' | sed 's/#\(.*\)= mkSystem/\1/' | sed 's/^[ \t]*/  - /'
+                exit 1
+        fi
+
+        echo "$target"
+}
+
+# Function to get the check target for nix-fast-build
+get_check_target() {
+        local hostname="$1"
+        local current_system
+        
+        # Get current system architecture
+        current_system=$(nix eval --raw --impure --expr builtins.currentSystem)
+        
+        echo ".#checks.${current_system}.${hostname}"
+}
+
+# Command definition
+COMMAND=""
+COMMAND_ARG=""
+
+# Parse command line arguments
+flake_target=""
+update_flake=false
+update_input=""
+upgrade_all=false
+low_power=false
+use_fast_build=false
+fast_build_skip_cached=false
+fast_build_remote=""
+fast_build_no_nom=false
+additional_args=()
+
+# Garbage collection options
+run_gc=false
+gc_after_build=false
+gc_delete_older=14  # Default: delete generations older than 14 days
+gc_keep_latest=3    # Default: keep at least the latest 3 generations
+gc_aggressive=false # Whether to run full garbage collection
+gc_dry_run=false    # Whether to simulate garbage collection
+
+# Help message
+show_help() {
+        echo -e "${BOLD}Hephaestus' NixOS Rebuild Script${RESET}"
+        echo
+        echo -e "${BOLD}Usage:${RESET}"
+        echo -e "  $0 ${BOLD}COMMAND${RESET} [options]"
+        echo
+        echo -e "${BOLD}Commands:${RESET}"
+        echo -e "  ${CYAN}switch${RESET}        Rebuild and switch to the new configuration"
+        echo -e "  ${CYAN}boot${RESET}          Rebuild and set as default boot configuration"
+        echo -e "  ${CYAN}test${RESET}          Test the configuration without activating"
+        echo -e "  ${CYAN}dry-run${RESET}       Perform a dry-run build"
+        echo -e "  ${CYAN}gc${RESET}            Run garbage collection only (no rebuild)"
+        echo -e "  ${CYAN}help${RESET}          Show this help message"
+        echo
+        echo -e "${BOLD}Options:${RESET}"
+        echo -e "  ${BLUE}--host${RESET} HOST           Specify the host to build for (default: current host)"
+        echo -e "  ${BLUE}--update-flake${RESET}        Update all flake inputs before rebuilding"
+        echo -e "  ${BLUE}--update-input${RESET} NAME   Update only the specified flake input"
+        echo -e "  ${BLUE}--upgrade-all${RESET}         Pass --upgrade-all flag to nixos-rebuild"
+        echo -e "  ${BLUE}--upgrade${RESET}             Shorthand for --update-flake --upgrade-all"
+        echo -e "  ${BLUE}--low-power${RESET}           Limit build to 2 cores and 2 jobs"
+        echo -e "  ${BLUE}--fast${RESET}                Use nix-fast-build for faster evaluation"
+        echo -e "  ${BLUE}--skip-cached${RESET}         Skip builds already in binary cache (with --fast)"
+        echo -e "  ${BLUE}--remote${RESET} HOST         Remote machine to build on (with --fast)"
+        echo -e "  ${BLUE}--no-nom${RESET}              Don't use nix-output-monitor (with --fast)"
+        echo
+        echo -e "${BOLD}Garbage Collection Options:${RESET}"
+        echo -e "  ${BLUE}--gc${RESET}                  Run garbage collection after rebuild"
+        echo -e "  ${BLUE}--gc-only${RESET}             Run garbage collection without rebuilding"
+        echo -e "  ${BLUE}--gc-older-than${RESET} DAYS  Delete generations older than DAYS (default: 14)"
+        echo -e "  ${BLUE}--gc-keep${RESET} N           Keep at least N latest generations (default: 3)"
+        echo -e "  ${BLUE}--gc-aggressive${RESET}       Run full garbage collection (nix-collect-garbage -d)"
+        echo -e "  ${BLUE}--gc-dry-run${RESET}          Show what would be deleted without actually deleting"
+        echo
+        echo -e "${BOLD}Examples:${RESET}"
+        echo -e "  $0 switch                      ${ARROW} Build and switch to new config for current host"
+        echo -e "  $0 boot --host main          ${ARROW} Build boot config for 'main'"
+        echo -e "  $0 switch --update-flake       ${ARROW} Update flake inputs and rebuild"
+        echo -e "  $0 switch --fast               ${ARROW} Use nix-fast-build for faster rebuilds"
+        echo -e "  $0 switch --gc                 ${ARROW} Rebuild and run garbage collection after"
+        echo -e "  $0 gc                          ${ARROW} Only run garbage collection (no rebuild)"
+        echo -e "  $0 switch --gc-older-than 30   ${ARROW} Rebuild and delete generations older than 30 days"
+}
+
+# Process the first argument as command
+if [[ $# -gt 0 ]]; then
+        case "$1" in
+        switch | boot | test | dry-run)
+                COMMAND="$1"
+                shift
+                ;;
+        gc)
+                COMMAND="gc"
+                run_gc=true
+                shift
+                ;;
+        help)
+                show_help
+                exit 0
+                ;;
+        *)
+                # If not a recognized command, assume "switch" and keep the arg
+                COMMAND="switch"
+                ;;
+        esac
+else
+        # Default command if none provided
+        COMMAND="switch"
+fi
+
+# Process remaining arguments
+while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --help | -h)
+                show_help
+                exit 0
+                ;;
+        --host | --flake-target | --ft)
+                if [[ -z "$2" || "$2" == --* ]]; then
+                        echo -e "${RED}${ERROR} Error: --host requires a parameter${RESET}"
+                        exit 1
+                fi
+                COMMAND_ARG="$2"
+                shift 2
+                ;;
+        --update-flake)
+                update_flake=true
+                shift
+                ;;
+        --update-input)
+                if [[ -z "$2" || "$2" == --* ]]; then
+                        echo -e "${RED}${ERROR} Error: --update-input requires a parameter${RESET}"
+                        exit 1
+                fi
+                update_input="$2"
+                shift 2
+                ;;
+        --upgrade-all)
+                upgrade_all=true
+                shift
+                ;;
+        --upgrade)
+                update_flake=true
+                upgrade_all=true
+                shift
+                ;;
+        --low-power)
+                low_power=true
+                shift
+                ;;
+        --fast)
+                use_fast_build=true
+                shift
+                ;;
+        --skip-cached)
+                fast_build_skip_cached=true
+                shift
+                ;;
+        --remote)
+                if [[ -z "$2" || "$2" == --* ]]; then
+                        echo -e "${RED}${ERROR} Error: --remote requires a parameter${RESET}"
+                        exit 1
+                fi
+                fast_build_remote="$2"
+                shift 2
+                ;;
+        --no-nom)
+                fast_build_no_nom=true
+                shift
+                ;;
+        # Garbage collection options
+        --gc)
+                gc_after_build=true
+                shift
+                ;;
+        --gc-only)
+                run_gc=true
+                shift
+                ;;
+        --gc-older-than)
+                if [[ -z "$2" || "$2" == --* ]]; then
+                        echo -e "${RED}${ERROR} Error: --gc-older-than requires a parameter${RESET}"
+                        exit 1
+                fi
+                gc_delete_older="$2"
+                shift 2
+                ;;
+        --gc-keep)
+                if [[ -z "$2" || "$2" == --* ]]; then
+                        echo -e "${RED}${ERROR} Error: --gc-keep requires a parameter${RESET}"
+                        exit 1
+                fi
+                gc_keep_latest="$2"
+                shift 2
+                ;;
+        --gc-aggressive)
+                gc_aggressive=true
+                shift
+                ;;
+        --gc-dry-run)
+                gc_dry_run=true
+                shift
+                ;;
+        *)
+                additional_args+=("$1")
+                shift
+                ;;
+        esac
+done
+
+# If the command is gc, make sure run_gc is true
+if [[ "$COMMAND" == "gc" ]]; then
+        run_gc=true
+fi
+
+# Set hostname and flake target
+target_hostname="${COMMAND_ARG:-$current_hostname}"
+flake_target=$(get_flake_target "$target_hostname")
+check_target=$(get_check_target "$target_hostname")
+
+# Set up logging
+mkdir -p "$LOG_DIR"
+timestamp=$(date '+%Y%m%d-%H%M%S')
+log_file="$LOG_DIR/nixos-rebuild-$target_hostname-$timestamp.log"
+ln -sf "$log_file" "$LOG_DIR/nixos-rebuild-latest.log"
+
+# Keep only the most recent logs (count-based rotation)
+if [[ -d "$LOG_DIR" ]]; then
+        # List all log files except the latest symlink, sort by modification time (newest first)
+        # Then remove all but the MAX_LOGS most recent files
+        find "$LOG_DIR" -type f -name "nixos-rebuild-*.log" |
+                sort -r |
+                tail -n +$((MAX_LOGS + 1)) |
+                xargs rm -f 2>/dev/null || true
+fi
+
+# Logging function
+log() {
+        local message="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+        echo -e "$message" | tee -a "$log_file"
+}
+
+# Info, warning and error logging functions
+log_info() {
+        log "${BLUE}${INFO} ${RESET}$1"
+}
+
+log_warning() {
+        log "${YELLOW}${WARNING} ${RESET}$1"
+}
+
+log_success() {
+        log "${GREEN}${TICK} ${RESET}$1"
+}
+
+log_error() {
+        log "${RED}${ERROR} ${RESET}$1"
+}
+
+# Error handling function
+handle_error() {
+        local message="$1"
+        local exit_code="${2:-1}"
+
+        # Print error message with emphasis
+        echo -e "${RED}${BOLD}${ERROR} ERROR:${RESET} $message" >&2
+        log_error "$message"
+
+        # Attempt to send desktop notification if command exists
+        if command -v notify-send &>/dev/null; then
+                notify-send "NixOS Rebuild Failed!" "$message" --icon=error
+        fi
+
+        echo -e "${YELLOW}Exiting with code $exit_code${RESET}"
+        exit "$exit_code"
+}
+
+# Check for required commands
+check_command() {
+        if ! command -v "$1" &>/dev/null; then
+                log_warning "Command not found: $1"
+                return 1
+        fi
+        return 0
+}
+
+# Run garbage collection function
+run_garbage_collection() {
+        # Check if we should run garbage collection
+        if [[ "$run_gc" != "true" && "$gc_after_build" != "true" ]]; then
+                return 0
+        fi
+
+        log_info "Starting NixOS garbage collection..."
+
+        # Prepare the command flags
+        local gc_flags=()
+        local gc_preview=""
+        
+        if [[ "$gc_dry_run" == "true" ]]; then
+                gc_preview="(DRY RUN) "
+                gc_flags+=("--dry-run")
+        fi
+
+        # Delete old generations
+        log_info "${gc_preview}Removing NixOS generations older than $gc_delete_older days (keeping at least $gc_keep_latest latest)..."
+        
+        # Build the command
+        local gc_cmd="sudo nix-env --profile /nix/var/nix/profiles/system --delete-generations +${gc_delete_older}d"
+        
+        # Add the minimum number of generations to keep
+        gc_cmd="$gc_cmd --keep-latest $gc_keep_latest"
+        
+        # Add any flags
+        for flag in "${gc_flags[@]}"; do
+                gc_cmd="$gc_cmd $flag"
+        done
+        
+        # Run the command and capture output
+        log_info "Running: $gc_cmd"
+        if ! eval "$gc_cmd" 2>&1 | tee -a "$log_file"; then
+                log_warning "Error removing old generations. Continuing..."
+        fi
+
+        # Run full garbage collection if requested
+        if [[ "$gc_aggressive" == "true" ]]; then
+                if [[ "$gc_dry_run" == "true" ]]; then
+                        log_info "${gc_preview}Simulating aggressive garbage collection (would run: sudo nix-collect-garbage -d)"
+                else
+                        log_info "Running aggressive garbage collection..."
+                        if ! sudo nix-collect-garbage -d 2>&1 | tee -a "$log_file"; then
+                                log_warning "Error during aggressive garbage collection. Continuing..."
+                        fi
+                fi
+        else
+                # Run standard garbage collection
+                if [[ "$gc_dry_run" == "true" ]]; then
+                        log_info "${gc_preview}Simulating standard garbage collection (would run: sudo nix-collect-garbage)"
+                else
+                        log_info "Running standard garbage collection..."
+                        if ! sudo nix-collect-garbage 2>&1 | tee -a "$log_file"; then
+                                log_warning "Error during standard garbage collection. Continuing..."
+                        fi
+                fi
+        fi
+
+        # Collect and display statistics on space reclaimed
+        local before_size=""
+        local after_size=""
+        local store_path="/nix/store"
+        
+        if [[ -d "$store_path" ]]; then
+                before_size=$(du -sh "$store_path" 2>/dev/null | cut -f1)
+                log_info "Nix store size before cleanup: ${before_size:-unknown}"
+                
+                # Only do the after measurement if it wasn't a dry run
+                if [[ "$gc_dry_run" != "true" ]]; then
+                        after_size=$(du -sh "$store_path" 2>/dev/null | cut -f1)
+                        log_info "Nix store size after cleanup: ${after_size:-unknown}"
+                fi
+        fi
+        
+        log_success "Garbage collection completed"
+        
+        # Send desktop notification about GC completion if available
+        if [[ "$gc_dry_run" != "true" && "$(command -v notify-send)" ]]; then
+                notify-send "Nix Garbage Collection Complete" "Cleaned up old NixOS generations" --icon=user-trash
+        fi
+}
+
+# Only show initial information if not just running garbage collection
+if [[ "$COMMAND" != "gc" ]]; then
+        # Initial information
+        log_info "Starting NixOS rebuild for ${BOLD}$target_hostname${RESET} (${COMMAND})"
+        log_info "Using flake target: ${CYAN}$flake_target${RESET}"
+        log_info "Using check target: ${CYAN}$check_target${RESET}"
+
+        # Auto-formatting
+        if ! check_command alejandra; then
+                echo -e "${YELLOW}${WARNING} Alejandra formatter not found. Continue without formatting? (y/n)${RESET}"
+                read -r answer
+                if [[ "$answer" != "y" ]]; then
+                        handle_error "Rebuild aborted: formatter not available"
+                fi
+        else
+                log_info "Running formatting check..."
+                if ! alejandra .; then
+                        handle_error "Formatting failed"
+                else
+                        log_success "Formatting check passed"
+                fi
+        fi
+
+        # Git add all changes before rebuild
+        log_info "Adding new files to git (without committing)..."
+        if ! check_command git; then
+                handle_error "Git not found. Git is required for functionality."
+        else
+                git add -A
+                log_success "Files staged in git"
+        fi
+
+        # Update flake inputs if requested
+        if [[ "$update_flake" == true ]]; then
+                log_info "Updating all flake inputs..."
+                if ! nix flake update; then
+                        handle_error "Flake update failed"
+                fi
+                log_success "Flake inputs updated successfully"
+        # Upgrades a specific input given through args
+        elif [[ -n "$update_input" ]]; then
+                log_info "Updating flake input: $update_input"
+                if ! nix flake lock --update-input "$update_input"; then
+                        handle_error "Failed to update flake input: $update_input"
+                fi
+                log_success "Flake input $update_input updated successfully"
+        fi
+
+        # Ensure sudo credentials are cached before starting the rebuild
+        if ! check_command sudo; then
+                handle_error "sudo command not found, cannot rebuild NixOS"
+        fi
+        sudo -v
+fi
+
+# If only running garbage collection, skip to that part
+if [[ "$COMMAND" == "gc" ]]; then
+        log_info "Running garbage collection only (no rebuild)"
+        run_garbage_collection
+        log_success "Garbage collection operation completed"
+        echo -e "${GREEN}${BOLD}${TICK} All done!${RESET} Log saved to: ${CYAN}$log_file${RESET}"
+        exit 0
+fi
+
+# Store the previous system path for later comparison
+prev=$(readlink -f /run/current-system 2>/dev/null)
+if [[ -z "$prev" ]]; then
+        log_warning "Could not determine current system path"
+        prev="/run/current-system"
+fi
+
+# Check for nix-fast-build if --fast option is used
+if [[ "$use_fast_build" == true ]]; then
+        if ! check_command nix-fast-build; then
+                log_warning "nix-fast-build not found. Installing temporarily..."
+                if ! nix run github:Mic92/nix-fast-build -- --help &>/dev/null; then
+                        log_error "Failed to run nix-fast-build. Make sure you have internet connectivity."
+                        echo -e "${YELLOW}${WARNING} Falling back to standard nixos-rebuild${RESET}"
+                        use_fast_build=false
+                else
+                        log_success "nix-fast-build available via nix run"
+                fi
+        fi
+fi
+
+# Run the rebuild command
+log_info "Starting NixOS rebuild (${BOLD}${COMMAND}${RESET})..."
+
+if [[ "$COMMAND" == "dry-run" ]]; then
+        REBUILD_COMMAND="build"
+        DRY_RUN=true
+else
+        REBUILD_COMMAND="$COMMAND"
+        DRY_RUN=false
+fi
+
+# Build arguments for nix-fast-build or nixos-rebuild
+fast_build_args=()
+rebuild_args=()
+
+# Add common arguments
+if [[ "$upgrade_all" == true ]]; then
+        rebuild_args+=("--upgrade-all")
+fi
+
+if [[ "$low_power" == true ]]; then
+        log_info "Running in low power mode (2 cores, 2 max jobs)"
+        rebuild_args+=("--cores" "2" "--max-jobs" "2")
+        fast_build_args+=("-j" "2")
+fi
+
+if [[ ${#additional_args[@]} -gt 0 ]]; then
+        rebuild_args+=("${additional_args[@]}")
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+        rebuild_args+=("--dry-run")
+fi
+
+# Execute the build using nix-fast-build or standard nixos-rebuild
+if [[ "$use_fast_build" == true ]]; then
+        log_info "Using nix-fast-build for faster evaluation and building..."
+
+        # Add nix-fast-build specific args
+        if [[ "$fast_build_skip_cached" == true ]]; then
+                fast_build_args+=("--skip-cached")
+                log_info "Skipping builds already in binary cache"
+        fi
+
+        if [[ -n "$fast_build_remote" ]]; then
+                fast_build_args+=("--remote" "$fast_build_remote")
+                log_info "Building remotely on: $fast_build_remote"
+        fi
+
+        if [[ "$fast_build_no_nom" == true ]]; then
+                fast_build_args+=("--no-nom")
+        fi
+
+        # Different handling based on command
+        case "$REBUILD_COMMAND" in
+        switch | boot)
+                # For switch and boot, we need to handle profile installation differently
+                log_info "Rebuilding system using nix-fast-build with targeted evaluation..."
+
+                # Build the system configuration using the specific check target
+                if command -v nix-fast-build &>/dev/null; then
+                        nix-fast-build --eval-max-memory-size 1024 --flake "$check_target" "${fast_build_args[@]}" 2>&1
+                else
+                        nix run github:Mic92/nix-fast-build -- --eval-max-memory-size 1024 --flake "$check_target" "${fast_build_args[@]}" 2>&1
+                fi
+
+                # Install the built configuration
+                log_info "Installing the built configuration..."
+                if ! sudo nixos-rebuild "$REBUILD_COMMAND" --flake "$flake_target" "${rebuild_args[@]}" 2>&1 | tee -a "$log_file"; then
+                        handle_error "Failed to install the built configuration"
+                fi
+                ;;
+
+        test | build)
+                # For test or build, just use nix-fast-build directly with the check target
+                if ! { command -v nix-fast-build &>/dev/null && nix-fast-build --eval-max-memory-size 1024 --flake "$check_target" "${fast_build_args[@]}" 2>&1 || nix run github:Mic92/nix-fast-build -- --flake "$check_target" "${fast_build_args[@]}" 2>&1; } | tee -a "$log_file"; then
+                        handle_error "nix-fast-build failed"
+                fi
+                ;;
+        esac
+
+        log_success "nix-fast-build completed successfully!"
+else
+        # Standard nixos-rebuild approach
+        if sudo nixos-rebuild "$REBUILD_COMMAND" --flake "$flake_target" "${rebuild_args[@]}" 2>&1 | tee -a "$log_file" | { command -v nom &>/dev/null && nom || cat; }; then
+                if [[ "$DRY_RUN" == true ]]; then
+                        log_success "Dry run completed successfully!"
+                else
+                        log_success "Rebuild successful!"
+                fi
+        else
+                echo -e "${RED}${BOLD}${ERROR} Rebuild failed!${RESET} Showing errors:"
+                grep --color=always "error:" "$log_file" || echo "No specific errors found in log"
+                echo -e "\nFull log available in: ${CYAN}$log_file${RESET}"
+                if check_command notify-send; then
+                        notify-send "NixOS Rebuild Failed!" "Check log for details" --icon=error
+                fi
+                exit 1
+        fi
+fi
+
+# Show system differences if not in test mode and not dry-run
+if [[ "$COMMAND" != "test" && "$DRY_RUN" != true ]]; then
+        log_info "Showing system differences:"
+        if ! check_command nvd; then
+                log_warning "nvd command not found, cannot show system differences"
+        else
+                nvd diff "$prev" /run/current-system 2>/dev/null || log_warning "Could not show system differences"
+        fi
+
+        # Get current generation metadata and clean it up
+        if generation_info=$(sudo nixos-rebuild list-generations | grep current); then
+                # Extract and format the components
+                generation_number=$(echo "$generation_info" | awk '{print $1}')
+                datetime=$(echo "$generation_info" | awk '{print $3, $4}' | xargs -I{} date -d "{}" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "unknown")
+                nixos_version=$(echo "$generation_info" | awk '{print $5}')
+                kernel_version=$(echo "$generation_info" | awk '{print $6}')
+
+                # Create the cleaned generation message
+                log_info "Machine ${BOLD}${target_hostname}${RESET} | Generation ${BOLD}${generation_number}${RESET} | ${datetime} | NixOS ${nixos_version} | Kernel ${kernel_version}"
+        else
+                log_warning "Could not get generation information"
+        fi
+
+        # Send notification
+        if check_command notify-send; then
+                notify-send "NixOS Rebuilt OK!" "Machine: $target_hostname" --icon=software-update-available
+        fi
+elif [[ "$COMMAND" == "test" ]]; then
+        log_success "Test completed successfully (no changes made)"
+        if check_command notify-send; then
+                notify-send "NixOS Test Successful" "Configuration tested successfully" --icon=dialog-information
+        fi
+fi
+
+# Run garbage collection if requested after build
+if [[ "$gc_after_build" == "true" ]]; then
+        log_info "Running post-build garbage collection..."
+        run_garbage_collection
+fi
+
+log_success "Operation completed successfully"
+echo -e "${GREEN}${BOLD}${TICK} All done!${RESET} Log saved to: ${CYAN}$log_file${RESET}"
