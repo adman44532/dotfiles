@@ -84,15 +84,15 @@
     });
 
     checks.${defaultSystem} = {
-      zeus = self.nixosConfigurations.zeus.config.system.build.toplevel;
+      hephaestus = self.nixosConfigurations.hephaestus.config.system.build.toplevel;
       hermes = self.nixosConfigurations.hermes.config.system.build.toplevel;
       hades = self.nixosConfigurations.hades.config.system.build.toplevel;
     };
 
     nixosConfigurations = {
       #! BIG BIG WARNING - Ensure that the hostname matches the machine folders
-      zeus = mkSystem {
-        hostname = "zeus";
+      hephaestus = mkSystem {
+        hostname = "hephaestus";
         user = builtins.readFile ./secrets/username1.txt;
         extraModules = [];
       };

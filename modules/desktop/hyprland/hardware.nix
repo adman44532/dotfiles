@@ -13,7 +13,7 @@ in {
       ### MONITORS ###
       ################
       monitor = lib.mkMerge [
-        (lib.mkIf (hostname == "zeus") {
+        (lib.mkIf (hostname == "hephaestus") {
           monitor = [
             "DP-1,3440x1440@60,0x0,1"
             "HDMI-A-1,1920x1080@60.00,auto-left,1"
@@ -26,7 +26,7 @@ in {
           ];
         })
 
-        (lib.mkIf (hostname != "zeus" && hostname != "hermes") {
+        (lib.mkIf (hostname != "hephaestus" && hostname != "hermes") {
           monitor = [
             ",preferred,auto,1"
           ];

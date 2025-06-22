@@ -18,7 +18,7 @@
         output = ["DP-1" "HDMI-A-1" "eDP-1"];
         modules-left = ["hyprland/workspaces"];
         modules-right = lib.mkMerge [
-          (lib.mkIf (hostname == "zeus") [
+          (lib.mkIf (hostname == "hephaestus") [
             "tray"
             "custom/mic-status"
             "wireplumber"
@@ -35,7 +35,7 @@
             "battery"
             "custom/power"
           ])
-          (lib.mkIf (hostname != "zeus" && hostname != "hermes") [
+          (lib.mkIf (hostname != "hephaestus" && hostname != "hermes") [
             "tray"
             "wireplumber"
             "clock"
