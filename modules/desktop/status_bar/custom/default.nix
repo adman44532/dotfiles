@@ -4,5 +4,5 @@
   inputs,
   ...
 }: {
-  imports = [./mic-status.nix ./laptop-refresh-rate.nix ./bluetooth-status.nix];
+  imports = [./mic-status.nix ./bluetooth-status.nix ./power-profile-status.nix];
 }

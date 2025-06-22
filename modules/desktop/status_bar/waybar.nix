@@ -30,7 +30,8 @@
             "wireplumber"
             "clock"
             "custom/bluetooth"
-            "custom/refresh-rate"
+            # "custom/refresh-rate"
+            "custom/power-profile"
             "battery"
             "custom/power"
           ])
@@ -65,6 +66,20 @@
           "interval" = 1;
           "format" = {};
           "on-click" = "mic-status toggle";
+        };
+
+        "custom/power-profile" = {
+          "exec" = "power-profile-status";
+          "return-type" = "json";
+          "interval" = 5;
+          "on-click" = "power-profile-cycle";
+          "tooltip" = true;
+          "format" = {};
+          "format-icons" = {
+            "performance" = "󱓞";
+            "balanced" = "";
+            "power-saver" = "";
+          };
         };
 
         "custom/refresh-rate" = {

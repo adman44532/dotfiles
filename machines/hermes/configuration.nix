@@ -14,6 +14,7 @@
 
   imports = [
     ./nvidia_gpu.nix
+    ./power-profiles.nix
     inputs.stylix.nixosModules.stylix
 
     # Module Selection
