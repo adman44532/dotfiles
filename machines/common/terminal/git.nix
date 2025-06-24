@@ -1,7 +1,17 @@
 {user, ...}: {
-  home-manager.users.${user}.programs.git = {
+  programs.git = {
     enable = true;
-    userName = "adman44532";
-    userEmail = "adman44532@gmail.com";
+    config = {
+      user = {
+        name = "adman44532";
+        email = "adman44532@gmail.com";
+      };
+      rerere = {
+        enabled = true;
+      };
+      pull = {
+        rebase = true;
+      };
+    };
   };
 }
