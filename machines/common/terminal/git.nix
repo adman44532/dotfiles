@@ -1,7 +1,7 @@
 {user, ...}: {
-  programs.git = {
+  home-manager.users.${user}.programs.git = {
     enable = true;
-    config = {
+    extraConfig = {
       user = {
         name = "adman44532";
         email = "adman44532@gmail.com";
