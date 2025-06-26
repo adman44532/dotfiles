@@ -3,7 +3,7 @@
   user,
   ...
 }: {
-  environment.systemPackages = with pkgs; [lua-language-server];
+  environment.systemPackages = with pkgs; [lua-language-server gcc];
   programs.neovim = {
     enable = true;
     defaultEditor = true;
