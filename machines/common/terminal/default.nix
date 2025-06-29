@@ -21,5 +21,6 @@
     ./evil-helix.nix
     ./fselect.nix
     ./yazi.nix
+    ./zellij.nix
   ];
 }
