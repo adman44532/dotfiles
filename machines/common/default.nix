@@ -1,6 +1,7 @@
 {
   pkgs,
   hostname,
+  inputs,
   ...
 }: {
   # This is configuration shared between all machines
@@ -43,6 +44,7 @@
     gh
     vim
     alejandra
+    nixd
     git-crypt
 
     # Packages are ordered from top to bottom
@@ -50,6 +52,8 @@
     os-prober
     wget
   ];
+
+  nix.nixPath = ["nixpkgs=${inputs.nixpkgs}"];
 
   programs.gnupg.agent = {
     enable = true;
