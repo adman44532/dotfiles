@@ -1,10 +1,11 @@
 {
-  config,
   pkgs,
   user,
   ...
 }: {
   programs.xfconf.enable = true;
+
+  # Vesktop Cattpuccin Link: https://catppuccin.github.io/discord/dist/catppuccin-macchiato.theme.css
 
   stylix = {
     enable = true;
