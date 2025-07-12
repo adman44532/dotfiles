@@ -1,5 +1,6 @@
 {...}: {
   imports = [
+    ./vn.crypt.nix
     ./pm.crypt.nix
     ./unarchivers.nix
     ./bottles.nix
