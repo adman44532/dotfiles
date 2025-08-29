@@ -38,6 +38,11 @@
     fsType = "ext4";
   };
 
+  fileSystems."/var/lib/nextcloud" = {
+    device = "/mnt/storage/nextcloud-data";
+    options = ["bind"];
+  };
+
   swapDevices = [];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
