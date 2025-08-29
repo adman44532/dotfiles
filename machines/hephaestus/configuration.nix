@@ -14,6 +14,7 @@
     inputs.stylix.nixosModules.stylix
     ./disko-config.nix
     ./amdgpu.nix
+    # ./nvidiagpu.nix
 
     # Module Selection
     ../../modules/desktop

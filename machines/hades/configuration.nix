@@ -1,8 +1,4 @@
-# Edit this configuration file to define what should be installed on
-# your system.  Help is available in the configuration.nix(5) man page
-# and in the NixOS manual (accessible by running ‘nixos-help’).
 {
-  config,
   pkgs,
   user,
   ...
@@ -13,6 +9,8 @@
     ./networking.nix
     ./ssh.nix
   ];
+
+  environment.systemPackages = with pkgs; [immich-go jdk17 screen];
 
   # Configure keymap in X11
   services.xserver.xkb = {
@@ -25,6 +23,6 @@
     isNormalUser = true;
     description = "user";
     extraGroups = ["networkmanager" "wheel" "docker"];
-    packages = with pkgs; [];
+    # packages = with pkgs; [];
   };
 }

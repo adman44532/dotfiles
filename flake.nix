@@ -31,6 +31,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     yazi.url = "github:sxyazi/yazi";
+    nvim-nix.url = "github:adman44532/nvim-nix";
   };
   outputs = {
     self,

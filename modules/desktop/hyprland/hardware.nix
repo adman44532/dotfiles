@@ -15,14 +15,15 @@ in {
       monitor = lib.mkMerge [
         (lib.mkIf (hostname == "hephaestus") {
           monitor = [
-            "DP-1,3440x1440@60,0x0,1"
-            "HDMI-A-1,1920x1080@60.00,auto-left,1"
+            "desc:Dell Inc. AW3423DWF 4F242S3, 3400x1440@100, 0x0, 1, bitdepth, 10, vrr, 1"
+            "desc:AOC 2770 GCNG6HA016274,1920x1080@60,auto-left,1"
           ];
         })
 
         (lib.mkIf (hostname == "hermes") {
           monitor = [
             "eDP-1,1920x1080@360.01,0x0,1"
+            ", preferred, auto, 1"
           ];
         })
 

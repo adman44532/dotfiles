@@ -15,7 +15,7 @@
       mainBar = {
         layer = "top";
         position = "top";
-        output = ["DP-1" "HDMI-A-1" "eDP-1"];
+        output = ["DP-1" "HDMI-A-1" "eDP-1" "DP-2" "DP-3" "DP-4" "HDMI-A-2"];
         modules-left = ["hyprland/workspaces"];
         modules-right = lib.mkMerge [
           (lib.mkIf (hostname == "hephaestus") [
