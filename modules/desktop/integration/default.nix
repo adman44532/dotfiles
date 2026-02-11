@@ -1,0 +1,3 @@
+_: {
+  imports = [./xdg.nix];
+}

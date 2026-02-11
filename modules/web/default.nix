@@ -1,0 +1,6 @@
+{...}: {
+  imports = [
+    ./searxng.nix
+    ./browsers
+  ];
+}

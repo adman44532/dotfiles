@@ -1,0 +1,25 @@
+.vscode
+.idea
+logs/
+graveyard/
+
+git-crypt-key
+*.swp
+*.secret
+*.age
+.cache/
+.result*
+*.bak
+*.key
+*.pem
+
+# Nix build artifacts
+result
+result-*
+
+# Editor backup files
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
