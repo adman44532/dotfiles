@@ -38,6 +38,10 @@
     vicinae-extensions = {
       url = "github:vicinaehq/extensions";
     };
+    spicetify = {
+      url = "github:Gerg-L/spicetify-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
     self,

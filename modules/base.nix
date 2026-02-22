@@ -12,6 +12,7 @@
 in {
   imports = [
     inputs.nix-flatpak.nixosModules.nix-flatpak
+    inputs.spicetify.nixosModules.spicetify
     ./default.nix
   ];
 
