@@ -42,7 +42,7 @@ in {
       ];
       substituters = attrNames cachix;
       trusted-public-keys = attrValues cachix;
-      trusted-users = ["root"];
+      trusted-users = ["root" "@wheel"];
       allowed-users = ["@wheel"];
     };
     # GC Handled by NH
@@ -60,7 +60,10 @@ in {
       enable = true;
       wifi.backend = "iwd";
     };
-    firewall.enable = true;
+    firewall = {
+      enable = true;
+      trustedInterfaces = ["tailscale0"];
+    };
     nameservers = ["1.1.1.1" "9.9.9.9"];
   };
   services.fail2ban.enable = true;
@@ -68,6 +71,15 @@ in {
   virtualisation.docker.enable = true;
 
   services.tailscale.enable = true;
+
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "no";
+      X11Forwarding = false;
+    };
+  };
 
   environment.systemPackages = with pkgs; [
     microcode-amd

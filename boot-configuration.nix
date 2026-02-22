@@ -1,6 +1,7 @@
 {pkgs, ...}: let
-  user = "nico";
-  hostName = "hades";
+  # ========== CHANGE ME ===========
+  user = "myUser";
+  hostName = "myMachine";
   timeZone = "Australia/Sydney";
   locale = "en_AU.UTF-8";
 in {
@@ -10,15 +11,18 @@ in {
     ./disko.nix
   ];
 
-  system.stateVersion = "25.05";
+  system.stateVersion = "25.11";
 
   nixpkgs.config.allowUnfree = true;
 
-  nix.settings.experimental-features = [
-    "nix-command"
-    "flakes"
-    "auto-allocate-uids"
-  ];
+  nix.settings = {
+    trusted-users = ["root" "@wheel"];
+    experimental-features = [
+      "nix-command"
+      "flakes"
+      "auto-allocate-uids"
+    ];
+  };
 
   boot.loader = {
     systemd-boot.enable = true;
@@ -32,7 +36,22 @@ in {
       enable = true;
       wifi.backend = "iwd";
     };
+    firewall = {
+      enable = true;
+      trustedInterfaces = ["tailscale0"];
+    };
     nameservers = ["1.1.1.1" "9.9.9.9"];
+  };
+
+  services.tailscale.enable = true;
+
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "no";
+      X11Forwarding = false;
+    };
   };
 
   time.timeZone = timeZone;
